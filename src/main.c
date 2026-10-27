@@ -6,7 +6,7 @@
 
 #include "ppm_render.h"
 
-#define MAX_ITER_VALUE 32
+#define MAX_ITER_VALUE 1200
 
 typedef struct {
 	double re;
@@ -14,61 +14,82 @@ typedef struct {
 } complex_d;
 
 static size_t mandelbrot_set[HEIGHT][WIDTH];
+const complex_d center = {-0.743643887037, 0.131825904205};
+const complex_d window_size = {4.0 / 40000.0, 2.0 / 40000.0};
 
-void square_complex(complex_d *c);
-void add_to_complex(complex_d *t, const complex_d *c);
-double get_complex_module(const complex_d *c);
+complex_d multiply_complex(complex_d z1, complex_d z2);
+complex_d divide_complex(complex_d z1, complex_d z2);
+complex_d add_complex(complex_d z1, complex_d z2);
+complex_d sub_complex(complex_d z1, complex_d z2);
+double get_complex_module(complex_d c);
 
-void create_mandelbrot_set(size_t width, size_t height, double x_min, double x_max, double y_min, double y_max);
+void create_mandelbrot_set(size_t width, size_t height, complex_d c, complex_d win_size);
 
-
-int main() {
-	create_mandelbrot_set(WIDTH, HEIGHT, -2.5, 1.0, -1.25, 1.25);
+int main(int argc, char **argv) {
+	create_mandelbrot_set(WIDTH, HEIGHT, center, window_size);
 	for(size_t h = 0;h < HEIGHT;h++) {
 		for(size_t w = 0;w < WIDTH;w++) {
-			// set_pixel(h, w, COLOR_ALL, mandelbrot_set[h][w] >= MAX_ITER_VALUE);
-			pixel_d pixel = {0};
+			hsv_d code = {0};
 			if(mandelbrot_set[h][w] >= MAX_ITER_VALUE) {
-				pixel = (pixel_d){COLOR_RESOLUTION - 1, COLOR_RESOLUTION - 1, COLOR_RESOLUTION - 1};
+				code.s = 0;
 			} else {
-				pixel.red = (uint8_t)(mandelbrot_set[h][w] * COLOR_RESOLUTION / MAX_ITER_VALUE);
-				pixel.blue = (uint8_t)(mandelbrot_set[h][w] * COLOR_RESOLUTION / MAX_ITER_VALUE);
+				code.v = 255;
+				size_t buff;
+				buff = mandelbrot_set[h][w] * 256 / 256;
+				if(buff >= 256)
+					buff = 255;
+				code.s = buff;
+				code.v = buff;
+				buff = mandelbrot_set[h][w] * 256 / 1024;
+				if(buff >= 256)
+					buff = 255;
+				code.h = buff;
 			}
-			set_pixel_rgb(h, w, pixel);
+			ppm_set_pixel_hsv(h, w, code);
 		}
 	}
-	render_image();
-
+	ppm_render_image(NULL);
 
 	return 0;
 }
 
-void square_complex(complex_d *c) {
-	double buff = c->re * c->re - c->im * c->im;
-	c->im = 2 * c->re * c->im;
-	c->re = buff;
+complex_d multiply_complex(complex_d z1, complex_d z2) {
+	return (complex_d){z1.re * z2.re - z1.im * z2.im, z1.re * z2.im + z1.im * z2.re};
 }
-void add_to_complex(complex_d *t, const complex_d *c) {
-	t->re += c->re;
-	t->im += c->im;
+complex_d divide_complex(complex_d z1, complex_d z2) {
+	double buff = z2.re * z2.re + z2.im * z2.im;
+	return (complex_d){(z1.re * z2.re + z1.im * z2.im) / buff, (z1.im * z2.re - z1.re * z2.im) / buff};
 }
-double get_complex_module(const complex_d *c) {
-	return sqrt(c->re * c->re + c->im * c->im);
+complex_d add_complex(complex_d z1, complex_d z2) {
+	return (complex_d){z1.re + z2.re, z1.im + z2.im};
+}
+complex_d sub_complex(complex_d z1, complex_d z2) {
+	return (complex_d){z1.re - z2.re, z1.im - z2.im};
+}
+double get_complex_module(complex_d c) {
+	return sqrt(c.re * c.re + c.im * c.im);
 }
 
-void create_mandelbrot_set(size_t width, size_t height, double x_min, double x_max, double y_min, double y_max) {
+void create_mandelbrot_set(size_t width, size_t height, complex_d c, complex_d win_size) {
+	double x_min = c.re - win_size.re / 2.0;
+	double x_max = c.re + win_size.re / 2.0;
+	double y_min = c.im - win_size.im / 2.0;
+	double y_max = c.im + win_size.im / 2.0;
+	printf("creating set between (%lf, %lf) and (%lf, %lf)\n", x_min, x_max, y_min, y_max);
 	for(size_t h = 0;h < height;h++) {
 		for(size_t w = 0;w < width;w++) {
 			double x = (double)w / (double)width * (x_max - x_min) + x_min;
-			double y = (double)h / (double)height * (y_max - y_min) + y_min;
+			double y = (double)(height - h - 1) / (double)height * (y_max - y_min) + y_min;
 			complex_d C = {x,y};
 			complex_d Z = C;
 			size_t i;
 			bool diverged = false;
 			for(i = 0;i < MAX_ITER_VALUE && diverged == false;i++) {
-				square_complex(&Z);
-				add_to_complex(&Z, &C);
-				diverged = get_complex_module(&Z) > 2.0;
+				Z = multiply_complex(Z, Z);
+				Z = add_complex(Z, C);
+				if(get_complex_module(Z) > sqrt(2)) {
+					diverged = true;
+				}
 			}
 			mandelbrot_set[h][w] = i;
 		}
